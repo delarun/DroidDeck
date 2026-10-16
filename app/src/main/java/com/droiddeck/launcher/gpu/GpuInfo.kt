@@ -3,6 +3,7 @@ package com.droiddeck.launcher.gpu
 import android.content.Context
 import android.os.Build
 import com.droiddeck.launcher.R
+import com.droiddeck.launcher.core.DeviceSupport
 import com.droiddeck.launcher.core.FileUtils
 import java.io.File
 
@@ -21,6 +22,7 @@ data class GpuInfo(
         A7XX("Adreno 7xx"),
         A6XX("Adreno 6xx"),
         ADRENO_UNKNOWN("Adreno"),
+        MALI("Mali"),
         NOT_ADRENO("Not an Adreno GPU");
 
         fun label(context: Context): String = if (this == NOT_ADRENO) context.getString(R.string.gpuinfo_not_adreno) else label
@@ -30,7 +32,7 @@ data class GpuInfo(
 
     val support: Support
         get() = when {
-            family == Family.NOT_ADRENO -> Support.UNSUPPORTED
+            family == Family.NOT_ADRENO || family == Family.MALI -> Support.UNSUPPORTED
             family == Family.A6XX && model == 650 -> Support.TESTED
             family == Family.A8XX -> Support.TESTED
             family == Family.A7XX && model >= 725 -> Support.TESTED
@@ -58,6 +60,7 @@ data class GpuInfo(
 
         fun detect(): GpuInfo {
             val adreno = File("/sys/class/kgsl/kgsl-3d0").exists() || File("/vendor/lib64/hw/vulkan.adreno.so").exists()
+            if (!adreno && DeviceSupport.mali()) return detectMali()
             val raw = listOf("/sys/class/kgsl/kgsl-3d0/gpu_model", "/sys/class/kgsl/kgsl-3d0/gpu_chipid")
                 .firstNotNullOfOrNull { FileUtils.readString(File(it))?.trim()?.takeIf(String::isNotEmpty) }
             val soc = if (adreno) SocNames.label() else ""
@@ -80,6 +83,22 @@ data class GpuInfo(
                 kgslName = raw.orEmpty(), modelSource = source,
             )
         }
+
+        private fun detectMali(): GpuInfo {
+            val fromVulkan = VulkanInfo.cachedOrNull()?.get("device")?.takeIf { it.contains("Mali", ignoreCase = true) }
+            val raw = fromVulkan ?: FileUtils.readString(File("/sys/class/misc/mali0/device/gpuinfo"))?.trim()?.takeIf(String::isNotEmpty)
+            return GpuInfo(
+                name = raw?.let(::maliName) ?: "Mali",
+                model = raw?.let(::maliModel) ?: 0, family = Family.MALI, soc = SocNames.label(),
+                oneUi8Gen2 = false, kgslName = raw.orEmpty(), modelSource = if (fromVulkan != null) "vulkan" else if (raw != null) "kernel" else "",
+            )
+        }
+
+        internal fun maliName(text: String): String? =
+            Regex("""Mali-G\d{2,3}(?:-Immortalis)?(?: MC\d+)?""", RegexOption.IGNORE_CASE).find(text)?.value
+
+        internal fun maliModel(text: String): Int =
+            Regex("""Mali-G(\d{2,3})""", RegexOption.IGNORE_CASE).find(text)?.groupValues?.get(1)?.toIntOrNull() ?: 0
 
         internal fun threeDigits(text: String): Int = Regex("""(\d{3})""").find(text)?.groupValues?.get(1)?.toIntOrNull() ?: 0
 

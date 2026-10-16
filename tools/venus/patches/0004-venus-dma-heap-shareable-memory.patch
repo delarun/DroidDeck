@@ -1,0 +1,199 @@
+diff --git a/src/venus/vkr_device_memory.c b/src/venus/vkr_device_memory.c
+index 7d57c7c..9192b0f 100644
+--- a/src/venus/vkr_device_memory.c
++++ b/src/venus/vkr_device_memory.c
+@@ -137,6 +137,91 @@ vkr_udmabuf_get_fd_info_from_allocation_info(
+ 
+ #endif /* HAVE_LINUX_UDMABUF_H && HAVE_MEMFD_CREATE */
+ 
++#if defined(__ANDROID__)
++#include <linux/dma-heap.h>
++#include <sys/ioctl.h>
++
++static VkResult
++vkr_dma_heap_get_fd_info_from_allocation_info(struct vkr_device *dev,
++                                              VkMemoryAllocateInfo *alloc_info,
++                                              uint32_t property_flags,
++                                              int *out_dma_buf_fd,
++                                              VkImportMemoryFdInfoKHR *out_fd_info)
++{
++   struct vkr_physical_device *physical_dev = dev->physical_device;
++   struct dma_heap_allocation_data heap_alloc = {
++      .len = align(alloc_info->allocationSize, getpagesize()),
++      .fd_flags = O_RDWR | O_CLOEXEC,
++   };
++   if (ioctl(physical_dev->dma_heap_fd, DMA_HEAP_IOCTL_ALLOC, &heap_alloc)) {
++      vkr_log("DMA_HEAP_IOCTL_ALLOC of %llu bytes failed (%s)",
++              (unsigned long long)heap_alloc.len, strerror(errno));
++      return errno == ENOMEM ? VK_ERROR_OUT_OF_DEVICE_MEMORY : VK_ERROR_OUT_OF_HOST_MEMORY;
++   }
++   const int dma_buf_fd = (int)heap_alloc.fd;
++
++   /* The driver may accept imports into fewer memory types than it advertises (Mali: only
++    * its cached host-visible type); pick the closest accepted one. */
++   VkMemoryFdPropertiesKHR fd_props = {
++      .sType = VK_STRUCTURE_TYPE_MEMORY_FD_PROPERTIES_KHR,
++   };
++   struct vn_device_proc_table *vk = &dev->proc_table;
++   if (vk->GetMemoryFdPropertiesKHR &&
++       vk->GetMemoryFdPropertiesKHR(dev->base.handle.device,
++                                    VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT,
++                                    dma_buf_fd, &fd_props) == VK_SUCCESS &&
++       fd_props.memoryTypeBits &&
++       !(fd_props.memoryTypeBits & (1u << alloc_info->memoryTypeIndex))) {
++      const VkMemoryPropertyFlags wanted =
++         property_flags & (VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
++      const uint32_t spoofed = physical_dev->mem_type_spoof ? 1 : 0;
++      uint32_t chosen = UINT32_MAX;
++      for (uint32_t host = 0; host + spoofed < physical_dev->memory_properties.memoryTypeCount; host++) {
++         if (!(fd_props.memoryTypeBits & (1u << host)))
++            continue;
++         const VkMemoryPropertyFlags flags =
++            physical_dev->memory_properties.memoryTypes[host + spoofed].propertyFlags;
++         if (chosen == UINT32_MAX || (flags & wanted) == wanted) {
++            chosen = host;
++            if ((flags & wanted) == wanted)
++               break;
++         }
++      }
++      if (chosen != UINT32_MAX)
++         alloc_info->memoryTypeIndex = chosen;
++   }
++
++   const int import_fd = os_dupfd_cloexec(dma_buf_fd);
++   if (import_fd < 0) {
++      close(dma_buf_fd);
++      return VK_ERROR_TOO_MANY_OBJECTS;
++   }
++
++   alloc_info->allocationSize = heap_alloc.len;
++   *out_dma_buf_fd = dma_buf_fd;
++   *out_fd_info = (VkImportMemoryFdInfoKHR){
++      .sType = VK_STRUCTURE_TYPE_IMPORT_MEMORY_FD_INFO_KHR,
++      .pNext = alloc_info->pNext,
++      .fd = import_fd,
++      .handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT,
++   };
++   return VK_SUCCESS;
++}
++
++#else
++
++static inline VkResult
++vkr_dma_heap_get_fd_info_from_allocation_info(UNUSED struct vkr_device *dev,
++                                              UNUSED VkMemoryAllocateInfo *alloc_info,
++                                              UNUSED uint32_t property_flags,
++                                              UNUSED int *out_dma_buf_fd,
++                                              UNUSED VkImportMemoryFdInfoKHR *out_fd_info)
++{
++   return VK_ERROR_OUT_OF_DEVICE_MEMORY;
++}
++
++#endif
++
+ #ifdef ENABLE_GBM_ALLOCATION
+ #include <gbm.h>
+ 
+@@ -304,7 +389,10 @@ vkr_dispatch_vkAllocateMemory(struct vn_dispatch_context *dispatch,
+    VkExportMemoryAllocateInfo local_export_info;
+    VkImportMemoryMetalHandleInfoEXT local_metal_import;
+ 
+-   if ((property_flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) && !res_info) {
++   const bool dma_heap_export =
++      physical_dev->dma_heap_fd >= 0 && export_info &&
++      (export_info->handleTypes & VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT);
++   if (((property_flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) || dma_heap_export) && !res_info) {
+       /* An implementation can support dma_buf import along with opaque fd export/import.
+        * If the client driver is using external memory and requesting dma_buf, without
+        * dma_buf fd export support, we must use gbm bo import path instead of forcing
+@@ -380,7 +468,10 @@ vkr_dispatch_vkAllocateMemory(struct vn_dispatch_context *dispatch,
+             export_info = NULL;
+          }
+ 
+-         if (force_udmabuf_import) {
++         if (physical_dev->dma_heap_fd >= 0) {
++            args->ret = vkr_dma_heap_get_fd_info_from_allocation_info(
++               dev, alloc_info, property_flags, &udmabuf_fd, &local_import_info);
++         } else if (force_udmabuf_import) {
+             /* To be noted, there are 2 limits for udmabuf:
+              * - list_limit: udmabuf_create_list->count limit. Default is 1024.
+              * - size_limit_mb: Max size of a dmabuf, in megabytes. Default is 64.
+diff --git a/src/venus/vkr_physical_device.c b/src/venus/vkr_physical_device.c
+index 7a1c221..fd001ca 100644
+--- a/src/venus/vkr_physical_device.c
++++ b/src/venus/vkr_physical_device.c
+@@ -43,6 +43,45 @@ vkr_physical_device_get_udmabuf_dev_fd(void)
+ 
+ #endif /* HAVE_LINUX_UDMABUF_H */
+ 
++#if defined(__ANDROID__)
++#include <fcntl.h>
++
++static int dma_heap_fd = -1;
++
++/* The memory types such a driver accepts imports into are cached but not coherent, so
++ * guest mappings of cached heap buffers read stale lines after GPU writes. Uncached heap
++ * buffers have no CPU lines to go stale, matching the driver's own coherent type. */
++static void
++vkr_dma_heap_init_once(void)
++{
++   static const char *const heaps[] = { "/dev/dma_heap/system-uncached", "/dev/dma_heap/system" };
++   for (unsigned i = 0; i < sizeof(heaps) / sizeof(heaps[0]) && dma_heap_fd < 0; i++) {
++      dma_heap_fd = open(heaps[i], O_RDONLY | O_CLOEXEC);
++      if (dma_heap_fd >= 0)
++         vkr_log("shareable memory comes from %s", heaps[i]);
++   }
++   if (dma_heap_fd < 0)
++      vkr_log("failed to open a system dma heap: %s", strerror(errno));
++}
++
++static inline int
++vkr_physical_device_get_dma_heap_fd(void)
++{
++   static once_flag dma_heap_once_flag = ONCE_FLAG_INIT;
++   call_once(&dma_heap_once_flag, vkr_dma_heap_init_once);
++   return dma_heap_fd;
++}
++
++#else
++
++static inline int
++vkr_physical_device_get_dma_heap_fd(void)
++{
++   return -1;
++}
++
++#endif
++
+ #ifdef ENABLE_GBM_ALLOCATION
+ #include <gbm.h>
+ #ifdef MINIGBM
+@@ -262,6 +301,16 @@ vkr_physical_device_init_memory_properties(struct vkr_physical_device *physical_
+       else
+          vkr_log("missing VK_EXT_external_memory_dma_buf for gbm import!");
+    }
++
++   /* Android vendor drivers (Mali) import dma-bufs but export none, and gbm does not exist
++    * there: back shareable memory with system dma heap buffers instead. */
++   physical_dev->dma_heap_fd = -1;
++   if (!physical_dev->is_dma_buf_fd_export_supported &&
++       !physical_dev->is_opaque_fd_export_supported &&
++       physical_dev->EXT_external_memory_dma_buf && !physical_dev->gbm_device &&
++       physical_dev->udmabuf_dev_fd < 0) {
++      physical_dev->dma_heap_fd = vkr_physical_device_get_dma_heap_fd();
++   }
+ }
+ 
+ static void
+diff --git a/src/venus/vkr_physical_device.h b/src/venus/vkr_physical_device.h
+index 8ec55a6..f79a4e7 100644
+--- a/src/venus/vkr_physical_device.h
++++ b/src/venus/vkr_physical_device.h
+@@ -38,6 +38,7 @@ struct vkr_physical_device {
+    bool is_opaque_fd_export_supported;
+    void *gbm_device;
+    int udmabuf_dev_fd;
++   int dma_heap_fd;
+ 
+    VkQueueFamilyProperties *queue_family_properties;
+    uint32_t queue_family_property_count;

@@ -57,5 +57,12 @@ library list, before anything is published.
   time, as the VRR branch already did: its next frame goes out on the first refresh a capped interval
   after its last one, with half a refresh of tolerance so an on-time window keeps every Nth refresh.
 
+- `0116-reimport-shm-buffers-every-commit.patch` - this app: gamescope memoized a client buffer's
+  texture by `wlr_buffer`, which is right for dma-bufs (the texture aliases the client's memory) but
+  not for wl_shm, whose texture is a copy taken at import. Mesa's software WSI, the only way Venus
+  clients can present on a Mali phone, redraws into the same few shm buffers, so the screen cycled
+  through their first frames. shm buffers are now copied on every commit and the commit owns the
+  copy; dma-bufs are still memoized.
+
 Sixteen more of Armada's patches are DRM/lease/HDR-on-KMS work for a native display, which this
 app's Wayland-hosted gamescope never reaches, or need a newer gamescope than the runtime has.

@@ -144,6 +144,22 @@ docker run --rm --platform linux/amd64 \
         READELF=aarch64-linux-gnu-readelf bash tools/linuxfs/check-preloads.sh "$d"
     '
 
+"${repo_root}/tools/venus/fetch-icd.sh" "${linuxfs_dir}"
+venus_include="${repo_root}/app/build/venus/include"
+rm -rf "${venus_include}" && mkdir -p "${venus_include}"
+cp -R "${NDK}"/toolchains/llvm/prebuilt/*/sysroot/usr/include/{vulkan,vk_video} "${venus_include}/"
+docker run --rm --platform linux/amd64 \
+    --user "$(id -u):$(id -g)" \
+    -v "${repo_root}:/src" -w /src "${image_name}" bash -lc '
+        set -euo pipefail
+        d=app/src/main/assets/linuxfs/usr/local/lib/droiddeck-venus
+        mkdir -p "$d"
+        aarch64-linux-gnu-gcc -shared -fPIC -O2 -Wall -Wextra -Werror -fvisibility=hidden -Wl,-z,defs \
+            -Iapp/build/venus/include -o "$d/libVkLayer_droiddeck_venus.so" tools/venus/layer/venus_layer.c
+        aarch64-linux-gnu-strip --strip-unneeded "$d/libVkLayer_droiddeck_venus.so"
+        cat tools/venus/layer/VK_LAYER_DROIDDECK_venus.json > "$d/VK_LAYER_DROIDDECK_venus.json"
+    '
+
 x86_key=$(inputs_hash bullseye tools/linuxfs/build-x86-preloads.sh tools/linuxfs/preload tools/linuxfs/fex \
     app/src/main/cpp/fakeinput_steam.cpp)
 x86_stage="${staging_dir}/x86-preloads"
@@ -313,6 +329,19 @@ else
     install -m755 "${proot_stage}/libproot.so" "${proot_stage}/libproot-loader.so" "${proot_out}/"
     echo "${proot_inputs}" > "${proot_out}/.proot-inputs"
     (cd "${proot_out}" && shasum -a 256 libproot.so libproot-loader.so > .proot-outputs)
+fi
+
+venus_inputs=$(printf '%s\n' "$(inputs_hash venus tools/venus)" "${ndk_version}" | shasum -a 256 | cut -d' ' -f1)
+if [[ -f "${proot_out}/libvenus-server.so" && "$(cat "${proot_out}/.venus-inputs" 2>/dev/null)" = "${venus_inputs}" ]]; then
+    echo "venus: sources unchanged, keeping ${proot_out}/libvenus-server.so"
+else
+    venus_stage="${staging_dir}/venus"
+    if ! restore_step venus "${venus_inputs}" "${venus_stage}"; then
+        "${repo_root}/tools/venus/build.sh" "${venus_stage}"
+        save_step venus "${venus_inputs}" "${venus_stage}"
+    fi
+    install -m755 "${venus_stage}/libvenus-server.so" "${proot_out}/"
+    echo "${venus_inputs}" > "${proot_out}/.venus-inputs"
 fi
 
 bundle_dir="${staging_dir}/pulseaudio-bundle"

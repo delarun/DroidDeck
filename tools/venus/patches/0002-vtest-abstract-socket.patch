@@ -1,0 +1,16 @@
+diff --git a/vtest/vtest_server.c b/vtest/vtest_server.c
+index 64a29e1..d988bd3 100644
+--- a/vtest/vtest_server.c
++++ b/vtest/vtest_server.c
+@@ -416,7 +416,10 @@ static void vtest_server_open_socket(void)
+ 
+    snprintf(un.sun_path, sizeof(un.sun_path), "%s", server.socket_name);
+ 
+-   unlink(un.sun_path);
++   if (un.sun_path[0] == '@')
++      un.sun_path[0] = '\0';
++   else
++      unlink(un.sun_path);
+ 
+    if (bind(server.socket, (struct sockaddr *)&un, sizeof(un)) < 0) {
+       goto err;

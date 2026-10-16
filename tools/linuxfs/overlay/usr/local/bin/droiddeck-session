@@ -263,6 +263,11 @@ bl_xprop_set_all() {
   [ "$ok" = 1 ]
 }
 export GDK_BACKEND=x11 QT_QPA_PLATFORM=xcb SDL_VIDEODRIVER=x11
+# Venus over vtest leaves gamescope's clients no DRI3 (Xwayland has no DRM node), no
+# linux-dmabuf (gamescope offers it only with a DRM fd) and no host-pointer import for
+# wl_shm, so their swapchains present through shared memory. gamescope itself, started
+# before this point, keeps dma-buf presentation to the app.
+[ "${DROIDDECK_VENUS:-}" = 1 ] && export MESA_VK_WSI_DEBUG=sw
 reap_orphans() {
   local round p stat pid left
   for round in 1 2 3 4 5; do

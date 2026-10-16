@@ -20,5 +20,7 @@ class SocNamesTest {
         assertEquals("Snapdragon 8 Gen 2 (QCS8550)", SocNames.label("QCS8550", ""))
         assertEquals("Snapdragon 8 Gen 3 family (SG8350P)", SocNames.label("SG8350P", "pineapple"))
         assertEquals("XYZ123", SocNames.label("XYZ123", ""))
+        assertEquals("Google Tensor G4", SocNames.label("Tensor G4", "zumapro"))
+        assertEquals("Google Tensor G4 family", SocNames.name("", "zumapro"))
     }
 }

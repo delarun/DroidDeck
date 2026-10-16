@@ -31,6 +31,20 @@ class GpuDetectionTest {
         assertEquals(Family.NOT_ADRENO, GpuInfo.familyOf(false, 830))
     }
 
+    @Test fun maliNamesFromVulkanAndTheKernel() {
+        assertEquals("Mali-G715 MC7", GpuInfo.maliName("Mali-G715 MC7"))
+        assertEquals("Mali-G715", GpuInfo.maliName("Mali-G715 7 cores r0p1 0xB8A2"))
+        assertEquals("Mali-G720-Immortalis MC12", GpuInfo.maliName("Mali-G720-Immortalis MC12"))
+        assertEquals(null, GpuInfo.maliName("Xclipse 940"))
+        assertEquals(715, GpuInfo.maliModel("Mali-G715 MC7"))
+        assertEquals(78, GpuInfo.maliModel("Mali-G78 MP20"))
+        assertEquals(0, GpuInfo.maliModel("Adreno (TM) 830"))
+    }
+
+    @Test fun maliIsNotYetSupported() {
+        assertEquals(Support.UNSUPPORTED, GpuInfo("Mali-G715 MC7", 715, Family.MALI, "", false).support)
+    }
+
     @Test fun familyBoundaries() {
         assertEquals(Family.ADRENO_UNKNOWN, GpuInfo.familyOf(true, 0))
         assertEquals(Family.ADRENO_UNKNOWN, GpuInfo.familyOf(true, 540))

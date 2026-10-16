@@ -1,0 +1,13 @@
+diff --git a/meson.build b/meson.build
+index 79aa049..46f998a 100644
+--- a/meson.build
++++ b/meson.build
+@@ -489,7 +489,7 @@ if with_unstable_apis
+ endif
+ 
+ subdir('src')
+-if with_vrend and not with_host_windows
++if not with_host_windows
+    subdir('vtest')
+ endif
+ 

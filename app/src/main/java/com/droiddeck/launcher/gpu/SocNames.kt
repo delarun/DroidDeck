@@ -10,12 +10,13 @@ object SocNames {
         "SM8750" to "Snapdragon 8 Elite", "SM8850" to "Snapdragon 8 Elite Gen 5",
         "SM7325" to "Snapdragon 778G", "SM7450" to "Snapdragon 7 Gen 1", "SM7550" to "Snapdragon 7 Gen 3",
         "SM6375" to "Snapdragon 695",
+        "TENSOR G4" to "Google Tensor G4",
     )
 
     private val PLATFORMS = mapOf(
         "msmnile" to "Snapdragon 855/860", "kona" to "Snapdragon 865/870", "lahaina" to "Snapdragon 888",
         "taro" to "Snapdragon 8 Gen 1", "cape" to "Snapdragon 8+ Gen 1", "kalama" to "Snapdragon 8 Gen 2",
-        "pineapple" to "Snapdragon 8 Gen 3", "sun" to "Snapdragon 8 Elite",
+        "pineapple" to "Snapdragon 8 Gen 3", "sun" to "Snapdragon 8 Elite", "zumapro" to "Google Tensor G4",
     )
 
     fun model(prop: (String) -> String = GpuInfo::systemProperty): String {
@@ -31,6 +32,7 @@ object SocNames {
     fun label(model: String = model(), platform: String = GpuInfo.systemProperty("ro.board.platform")): String {
         val name = name(model, platform)
         return when {
+            name != null && name.endsWith(model, ignoreCase = true) -> name
             name != null && model.isNotEmpty() -> "$name ($model)"
             name != null -> name
             else -> model

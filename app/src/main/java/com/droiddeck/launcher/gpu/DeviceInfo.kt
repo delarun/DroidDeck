@@ -91,6 +91,9 @@ object DeviceInfo {
             ?.split(Regex("\\s+"))?.mapNotNull { it.toLongOrNull() }?.filter { it > 0 }.orEmpty()
         if (kgsl.isNotEmpty()) return "${mhz(kgsl.min())}–${mhz(kgsl.max())} (${kgsl.size} steps)"
         read("/sys/class/kgsl/kgsl-3d0/max_gpuclk")?.toLongOrNull()?.let { return "up to ${mhz(it)}" }
+        val mali = read("/sys/class/misc/mali0/device/available_frequencies")
+            ?.split(Regex("\\s+"))?.mapNotNull { it.toLongOrNull() }?.filter { it > 0 }?.map { it * 1000 }.orEmpty()
+        if (mali.isNotEmpty()) return "${mhz(mali.min())}–${mhz(mali.max())} (${mali.size} steps)"
         val node = File("/sys/class/devfreq").listFiles()?.firstOrNull { f ->
             val n = f.name.lowercase()
             (n.contains("gpu") || n.contains("mali") || n.contains("kgsl-3d")) && listOf("bus", "bw", "memlat").none { n.contains(it) }

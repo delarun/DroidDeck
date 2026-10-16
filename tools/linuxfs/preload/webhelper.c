@@ -71,3 +71,11 @@ __attribute__((visibility("hidden"))) char *const *bl_webhelper_argv(const char 
   out[n] = NULL;
   return out;
 }
+
+/* Steam's steamwebhelper.sh sets LIBGL_KOPPER_DISABLE; without kopper zink presents through
+ * DRI3, which Xwayland cannot offer on Venus (no DRM node), so the output window never gets
+ * a GL context. Kopper presents through the Vulkan WSI instead. */
+__attribute__((constructor)) static void venus_keeps_kopper(void) {
+  const char *venus = getenv("DROIDDECK_VENUS");
+  if (venus && !strcmp(venus, "1")) unsetenv("LIBGL_KOPPER_DISABLE");
+}

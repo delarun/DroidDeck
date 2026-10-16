@@ -1,0 +1,58 @@
+diff --git a/src/commit.h b/src/commit.h
+index 20f881d..90e4e9e 100644
+--- a/src/commit.h
++++ b/src/commit.h
+@@ -40,6 +40,7 @@ struct commit_t final : public gamescope::RcObject, public gamescope::IWaitable,
+ 
+ 	struct wlr_buffer *buf = nullptr;
+ 	gamescope::Rc<CVulkanTexture> vulkanTex;
++	gamescope::OwningRc<CVulkanTexture> ownedShmTex;
+ 	std::optional<UpscaledTexture_t> upscaledTexture;
+ 
+ 	gamescope::Rc<CVulkanTexture> GetTexture( GamescopeUpscaleFilter eFilter, GamescopeUpscaleScaler eScaler, GamescopeAppTextureColorspace &colorspace )
+diff --git a/src/steamcompmgr.cpp b/src/steamcompmgr.cpp
+index 214677d..9ab6ba7 100644
+--- a/src/steamcompmgr.cpp
++++ b/src/steamcompmgr.cpp
+@@ -1851,16 +1851,23 @@ import_commit (
+ 		commit->fifo = false;
+ 	}
+ 
+-	if ( gamescope::OwningRc<CVulkanTexture> pTexture = s_BufferMemos.LookupVulkanTexture( buf ) )
++	// A shm buffer's texture is a copy taken at import, so a client that redraws into the
++	// same wl_buffer (Mesa's software WSI) needs a fresh copy on every commit.
++	struct wlr_dmabuf_attributes dmabuf = {0};
++	const bool bDmabuf = wlr_buffer_get_dmabuf( buf, &dmabuf );
++
++	if ( bDmabuf )
+ 	{
+-		// Going from OwningRc -> Rc now.
+-		commit->vulkanTex = pTexture;
+-		return commit;
++		if ( gamescope::OwningRc<CVulkanTexture> pTexture = s_BufferMemos.LookupVulkanTexture( buf ) )
++		{
++			// Going from OwningRc -> Rc now.
++			commit->vulkanTex = pTexture;
++			return commit;
++		}
+ 	}
+ 
+-	struct wlr_dmabuf_attributes dmabuf = {0};
+ 	gamescope::OwningRc<gamescope::IBackendFb> pBackendFb;
+-	if ( wlr_buffer_get_dmabuf( buf, &dmabuf ) )
++	if ( bDmabuf )
+ 	{
+ 		pBackendFb = GetBackend()->ImportDmabufToBackend( &dmabuf );
+ 	}
+@@ -1874,7 +1881,10 @@ import_commit (
+ 
+ 	commit->vulkanTex = pOwnedTexture;
+ 
+-	s_BufferMemos.MemoizeBuffer( buf, std::move( pOwnedTexture ) );
++	if ( bDmabuf )
++		s_BufferMemos.MemoizeBuffer( buf, std::move( pOwnedTexture ) );
++	else
++		commit->ownedShmTex = std::move( pOwnedTexture );
+ 
+ 	return commit;
+ }

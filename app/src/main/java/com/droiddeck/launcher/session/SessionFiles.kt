@@ -121,6 +121,10 @@ object SessionFiles {
             "usr/local/bin/gamescope" to "usr/local/bin/gamescope",
             "usr/local/lib/droiddeck/uruntime" to "usr/local/lib/droiddeck/uruntime",
             "usr/local/share/licenses/uruntime/LICENSE" to "usr/local/share/licenses/uruntime/LICENSE",
+            "usr/local/lib/droiddeck-venus/libvulkan_virtio.so" to "usr/local/lib/droiddeck-venus/libvulkan_virtio.so",
+            "usr/local/lib/droiddeck-venus/libVkLayer_droiddeck_venus.so" to "usr/local/lib/droiddeck-venus/libVkLayer_droiddeck_venus.so",
+            "usr/local/lib/droiddeck-venus/VK_LAYER_DROIDDECK_venus.json" to "usr/share/vulkan/implicit_layer.d/droiddeck_venus.json",
+            "usr/local/share/licenses/vulkan-virtio/license.rst" to "usr/local/share/licenses/vulkan-virtio/license.rst",
         ) + mangoapp + listOf("comet", "GalaxyCommunication.exe", "update-permissions.exe", "LICENSE", "version").map { "usr/local/lib/droiddeck-comet/$it" to "usr/local/lib/droiddeck-comet/$it" } + msitools.map { it to it } + vr + fexPreloads).filter { (asset, _) ->
             val dir = asset.substringBeforeLast('/')
             runCatching { context.assets.list("linuxfs/$dir")?.contains(asset.substringAfterLast('/')) == true }.getOrDefault(false)

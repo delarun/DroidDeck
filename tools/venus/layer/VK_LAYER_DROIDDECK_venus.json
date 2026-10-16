@@ -1,0 +1,22 @@
+{
+    "file_format_version": "1.2.0",
+    "layer": {
+        "name": "VK_LAYER_DROIDDECK_venus",
+        "type": "GLOBAL",
+        "library_path": "/usr/local/lib/droiddeck-venus/libVkLayer_droiddeck_venus.so",
+        "api_version": "1.4.0",
+        "implementation_version": "1",
+        "description": "Adapts Venus over vtest for gamescope: hides VK_EXT_physical_device_drm and stands in for VK_KHR_external_semaphore_fd",
+        "functions": {
+            "vkNegotiateLoaderLayerInterfaceVersion": "droiddeck_venus_NegotiateLoaderLayerInterfaceVersion",
+            "vkGetInstanceProcAddr": "droiddeck_venus_GetInstanceProcAddr",
+            "vkGetDeviceProcAddr": "droiddeck_venus_GetDeviceProcAddr"
+        },
+        "enable_environment": {
+            "DROIDDECK_VENUS": "1"
+        },
+        "disable_environment": {
+            "DROIDDECK_VENUS_LAYER_DISABLE": "1"
+        }
+    }
+}
